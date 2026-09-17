@@ -1,0 +1,65 @@
+name: 每日股息筛选
+
+on:
+  # 每天 UTC 9:00 = 北京时间 17:00，工作日
+  schedule:
+    - cron: '0 9 * * 1-5'
+  workflow_dispatch:  # 支持手动触发
+
+# 需要写权限才能把 history.json 提交回仓库
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 运行筛选（V3 策略系统）
+        run: python screener.py
+
+      - name: 保存历史记录（用于 NEW 标记）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add history.json docs/index.html docs/data.json
+          git diff --quiet --cached || git commit -m "chore: 更新筛选结果 $(date +'%Y-%m-%d')"
+          git push || echo "无变更需推送"
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v4
+
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
